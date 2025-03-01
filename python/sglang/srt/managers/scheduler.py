@@ -778,7 +778,7 @@ class Scheduler:
         )
 
         logger.info(
-            f"Prefill batch. "
+            f"Prefill batch. test test"
             f"#new-seq: {len(can_run_list)}, "
             f"#new-token: {adder.log_input_tokens}, "
             f"#cached-token: {adder.log_hit_tokens}, "
