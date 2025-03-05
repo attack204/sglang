@@ -51,7 +51,8 @@ RUN git clone ${TRITON_REPO} \
     && cd triton \
     && git checkout ${TRITON_COMMIT} \
     && cd python \
-    && python3 setup.py install
+
+RUN python3 setup.py install
 
 RUN git clone ${AITER_REPO} \
     && cd aiter \

@@ -5,6 +5,11 @@ from sglang.srt.configs.qwen2_5_vl_config import (
     Qwen2_5_VLConfig,
     Qwen2_5_VLVisionConfig,
 )
+from sglang.srt.configs.siglip2_config import (
+    Siglip2Config,
+    Siglip2VisionConfig,
+)
+
 
 __all__ = [
     "ExaoneConfig",
@@ -12,4 +17,6 @@ __all__ = [
     "DbrxConfig",
     "Qwen2_5_VLConfig",
     "Qwen2_5_VLVisionConfig",
+    "Siglip2Config",
+    "Siglip2VisionConfig"
 ]
