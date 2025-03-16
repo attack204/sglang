@@ -151,8 +151,9 @@ class ModelRunner:
                 logger.info("Automatically turn off --chunked-prefill-size for mllama.")
                 server_args.chunked_prefill_size = -1
 
-            if self.model_config.hf_config.architectures == [
-                "Qwen2VLForConditionalGeneration"
+            if self.model_config.hf_config.architectures in [
+                ["Qwen2VLForConditionalGeneration"],
+                ["SiglipModel"]
             ]:
                 # TODO: qwen2-vl does not support radix cache now, set disable_radix_cache=True automatically
                 logger.info(

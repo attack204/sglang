@@ -12,27 +12,31 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+# import logging
+import logging
 import math
 import warnings
-import logging
-from dataclasses import dataclass
 from functools import lru_cache
-from typing import Any, Optional, Tuple, Union, List
-from transformers.models.siglip2 import Siglip2VisionConfig
+from typing import Optional, Tuple, List, Iterable, Set
 
-import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn import BCEWithLogitsLoss, CrossEntropyLoss, MSELoss
 from torch.nn.init import _calculate_fan_in_and_fan_out
-
-from srt.configs import Siglip2Config
-from srt.configs.siglip2_config import Siglip2TextConfig
+from transformers.models.siglip2 import Siglip2Config
+from transformers.models.siglip2 import Siglip2VisionConfig
+from transformers.models.siglip2 import Siglip2TextConfig
+from sglang.srt.layers.quantization.base_config import QuantizationConfig
+# from srt.configs import Siglip2Config
+# from srt.configs.siglip2_config import Siglip2TextConfig
 from srt.hf_transformers_utils import get_processor
 from srt.layers.activation import QuickGELU
 from srt.layers.attention.vision import VisionAttention
 from srt.managers.schedule_batch import ImageInputs
+from sglang.srt.model_loader.weight_utils import default_weight_loader
+
+# logger = logging.getLogger(__name__)
 
 # from ...activations import ACT2FN
 # from ...modeling_attn_mask_utils import _prepare_4d_attention_mask
@@ -54,7 +58,6 @@ from srt.managers.schedule_batch import ImageInputs
 #     from ...modeling_flash_attention_utils import _flash_attention_forward
 #
 
-logger = logging.get_logger(__name__)
 
 # # General docstring
 # _CONFIG_FOR_DOC = "Siglip2Config"
@@ -168,7 +171,7 @@ class Siglip2VisionEmbeddings(nn.Module):
         )
 
         self.num_patches = config.num_patches
-        self.position_embedding_size = int(self.num_patches**0.5)
+        self.position_embedding_size = int(self.num_patches ** 0.5)
         self.position_embedding = nn.Embedding(self.num_patches, self.embed_dim)
 
     @staticmethod
@@ -226,7 +229,7 @@ class Siglip2VisionEmbeddings(nn.Module):
             resized_embeddings = resized_embeddings.to(source_dtype)
 
             resulted_positional_embeddings[i, : height * width] = resized_embeddings
-            resulted_positional_embeddings[i, height * width :] = resized_embeddings[0]
+            resulted_positional_embeddings[i, height * width:] = resized_embeddings[0]
 
         return resulted_positional_embeddings
 
@@ -241,6 +244,7 @@ class Siglip2VisionEmbeddings(nn.Module):
 
         # Apply patch embeddings to already patchified pixel values
         target_dtype = self.patch_embedding.weight.dtype
+        logging.info(pixel_values.size())
         patch_embeds = self.patch_embedding(pixel_values.to(dtype=target_dtype))
 
         # Get positional resized and padded positional embeddings
@@ -270,7 +274,7 @@ class Siglip2Attention(nn.Module):
                 f"embed_dim must be divisible by num_heads (got `embed_dim`: {self.embed_dim} and `num_heads`:"
                 f" {self.num_heads})."
             )
-        self.scale = self.head_dim**-0.5
+        self.scale = self.head_dim ** -0.5
         self.dropout = config.attention_dropout
 
         self.k_proj = nn.Linear(self.embed_dim, self.embed_dim)
@@ -329,6 +333,7 @@ class Siglip2Attention(nn.Module):
         attn_output = self.out_proj(attn_output)
 
         return attn_output, attn_weights
+
 
 #
 # class Siglip2FlashAttention2(Siglip2Attention):
@@ -436,10 +441,10 @@ class Siglip2SdpaAttention(Siglip2Attention):
     ) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
         if output_attentions:
             # TODO: Improve this warning with e.g. `model.config.attn_implementation = "manual"` once this is implemented.
-            logger.warning_once(
-                "Siglip2Model is using Siglip2SdpaAttention, but `torch.nn.functional.scaled_dot_product_attention` does not support `output_attentions=True`. Falling back to the manual attention implementation, "
-                'but specifying the manual implementation will be required from Transformers version v5.0.0 onwards. This warning can be removed using the argument `attn_implementation="eager"` when loading the model.'
-            )
+            # logger.warning_once(
+            #     "Siglip2Model is using Siglip2SdpaAttention, but `torch.nn.functional.scaled_dot_product_attention` does not support `output_attentions=True`. Falling back to the manual attention implementation, "
+            #     'but specifying the manual implementation will be required from Transformers version v5.0.0 onwards. This warning can be removed using the argument `attn_implementation="eager"` when loading the model.'
+            # )
             return super().forward(
                 hidden_states=hidden_states,
                 attention_mask=attention_mask,
@@ -967,7 +972,7 @@ class Siglip2TextTransformer(nn.Module):
         pooled_output = last_hidden_state[:, -1, :]
         pooled_output = self.head(pooled_output)
 
-        #if not return_dict:
+        # if not return_dict:
         return (last_hidden_state, pooled_output) + encoder_outputs[1:]
 
         # return BaseModelOutputWithPooling(
@@ -1032,86 +1037,14 @@ SIGLIP2_INPUTS_DOCSTRING = r"""
             Whether or not to return a [`~utils.ModelOutput`] instead of a plain tuple.
 """
 
-
-# class nn.Module(PreTrainedModel):
-#     """
-#     An abstract class to handle weights initialization and a simple interface for downloading and loading pretrained
-#     models.
-#     """
-
-#     config_class = Siglip2Config
-#     base_model_prefix = "siglip2"
-#     supports_gradient_checkpointing = True
-
-#     _no_split_modules = [
-#         "Siglip2TextEmbeddings",
-#         "Siglip2EncoderLayer",
-#         "Siglip2VisionEmbeddings",
-#         "Siglip2EncoderLayer",
-#         "Siglip2MultiheadAttentionPoolingHead",
-#     ]
-#     _supports_flash_attn_2 = True
-#     _supports_sdpa = True
-
-#     def _init_weights(self, module):
-#         """Initialize the weights"""
-#         if isinstance(module, Siglip2VisionEmbeddings):
-#             width = (
-#                 self.config.vision_config.hidden_size
-#                 if isinstance(self.config, Siglip2Config)
-#                 else self.config.hidden_size
-#             )
-#             nn.init.normal_(module.position_embedding.weight, std=1 / np.sqrt(width))
-#         elif isinstance(module, nn.Embedding):
-#             default_flax_embed_init(module.weight)
-#         elif isinstance(module, Siglip2Attention):
-#             nn.init.xavier_uniform_(module.q_proj.weight)
-#             nn.init.xavier_uniform_(module.k_proj.weight)
-#             nn.init.xavier_uniform_(module.v_proj.weight)
-#             nn.init.xavier_uniform_(module.out_proj.weight)
-#             nn.init.zeros_(module.q_proj.bias)
-#             nn.init.zeros_(module.k_proj.bias)
-#             nn.init.zeros_(module.v_proj.bias)
-#             nn.init.zeros_(module.out_proj.bias)
-#         elif isinstance(module, Siglip2MLP):
-#             nn.init.xavier_uniform_(module.fc1.weight)
-#             nn.init.xavier_uniform_(module.fc2.weight)
-#             nn.init.normal_(module.fc1.bias, std=1e-6)
-#             nn.init.normal_(module.fc2.bias, std=1e-6)
-#         elif isinstance(module, Siglip2MultiheadAttentionPoolingHead):
-#             nn.init.xavier_uniform_(module.probe.data)
-#             nn.init.xavier_uniform_(module.attention.in_proj_weight.data)
-#             nn.init.zeros_(module.attention.in_proj_bias.data)
-#         elif isinstance(module, Siglip2Model):
-#             logit_scale_init = torch.log(torch.tensor(1.0))
-#             module.logit_scale.data.fill_(logit_scale_init)
-#             module.logit_bias.data.zero_()
-#         elif isinstance(module, Siglip2ForImageClassification):
-#             nn.init.normal_(
-#                 module.classifier.weight,
-#                 std=self.config.vision_config.hidden_size**-0.5 * self.config.initializer_factor,
-#             )
-#         elif isinstance(module, (nn.Linear, nn.Conv2d)):
-#             lecun_normal_(module.weight)
-#             if module.bias is not None:
-#                 nn.init.zeros_(module.bias)
-#         elif isinstance(module, nn.LayerNorm):
-#             module.bias.data.zero_()
-#             module.weight.data.fill_(1.0)
-
-
-# @add_start_docstrings(
-#     """The text model from Siglip2 without any head or projection on top.""",
-#     SIGLIP2_START_DOCSTRING,
-# )
 class Siglip2TextModel(nn.Module):
     config_class = Siglip2TextConfig
 
     def __init__(self, config: Siglip2TextConfig):
-        super().__init__(config)
+        super().__init__()
         self.text_model = Siglip2TextTransformer(config)
         # Initialize weights and apply final processing
-        self.post_init()
+        # self.post_init()
 
     def get_input_embeddings(self) -> nn.Module:
         return self.text_model.embeddings.token_embedding
@@ -1198,12 +1131,53 @@ class Siglip2VisionModel(nn.Module):
     main_input_name = "pixel_values"
 
     def __init__(self, config: Siglip2VisionConfig):
-        super().__init__(config)
+        super().__init__()
 
         self.vision_model = Siglip2VisionTransformer(config)
 
-        # Initialize weights and apply final processing
-        self.post_init()
+        # # Initialize weights and apply final processing
+        # self.post_init()
+
+    def load_weights(self, weights: Iterable[Tuple[str, torch.Tensor]]):
+
+        stacked_params_mapping = [
+            # (param_name, shard_name, shard_id)
+            ("qkv_proj", "q_proj", "q"),
+            ("qkv_proj", "k_proj", "k"),
+            ("qkv_proj", "v_proj", "v"),
+        ]
+        params_dict = dict(self.named_parameters())
+        loaded_params: Set[str] = set()
+        layer_count = len(self.vision_model.encoder.layers)
+
+        for name, loaded_weight in weights:
+            # post_layernorm is optional in Siglip2VisionModel
+            if (name.startswith("vision_model.post_layernorm")
+                and self.vision_model.post_layernorm is None):
+                continue
+
+            # omit layers when num_hidden_layers_override is set
+            if name.startswith("vision_model.encoder.layers"):
+                layer_idx = int(name.split(".")[3])
+                if layer_idx >= layer_count:
+                    continue
+
+            for (param_name, weight_name, shard_id) in stacked_params_mapping:
+                if weight_name not in name:
+                    continue
+                name = name.replace(weight_name, param_name)
+
+                param = params_dict[name]
+                weight_loader = param.weight_loader
+                weight_loader(param, loaded_weight, shard_id)
+                break
+            else:
+                param = params_dict[name]
+                weight_loader = getattr(param, "weight_loader",
+                                        default_weight_loader)
+                weight_loader(param, loaded_weight)
+            loaded_params.add(name)
+        return loaded_params
 
     def get_input_embeddings(self) -> nn.Module:
         return self.vision_model.embeddings.patch_embedding
@@ -1217,7 +1191,6 @@ class Siglip2VisionModel(nn.Module):
         output_hidden_states: Optional[bool] = None,
         return_dict: Optional[bool] = None,
     ) -> torch.Tensor:
-
         return_dict = return_dict if return_dict is not None else self.config.use_return_dict
 
         return self.vision_model(
@@ -1270,21 +1243,23 @@ class Siglip2Model(nn.Module):
                 non_image_tokens = input_ids[: image_indices[image_cnt]]
             else:
                 non_image_tokens = input_ids[
-                    image_indices[image_cnt - 1] + 1 : image_indices[image_cnt]
-                ]
+                                   image_indices[image_cnt - 1] + 1: image_indices[image_cnt]
+                                   ]
             input_ids_with_image.extend(non_image_tokens)
             image_inputs.image_offsets.append(len(input_ids_with_image))
             pad_ids = pad_values * (
                 (num_image_tokens + len(pad_values)) // len(pad_values)
             )
             input_ids_with_image.extend(pad_ids[:num_image_tokens])
-        input_ids_with_image.extend(input_ids[image_indices[-1] + 1 :])
+        input_ids_with_image.extend(input_ids[image_indices[-1] + 1:])
 
         return input_ids_with_image
 
-    def __init__(self, config: Siglip2Config):
-        super().__init__(config)
-
+    def __init__(self,
+                 config: Siglip2Config,
+                 quant_config: Optional[QuantizationConfig] = None,):
+        super().__init__()
+        self.config = config
         if not isinstance(config.text_config, Siglip2TextConfig):
             raise TypeError(
                 "config.text_config is expected to be of type Siglip2TextConfig but is of type"
@@ -1301,8 +1276,8 @@ class Siglip2Model(nn.Module):
         vision_config = config.vision_config
 
         # First, initialize the text and vision models with proper attention implementation
-        text_model = Siglip2TextModel._from_config(text_config)
-        vision_model = Siglip2VisionModel._from_config(vision_config)
+        text_model = Siglip2TextModel(text_config)
+        vision_model = Siglip2VisionModel(vision_config)
 
         # Second, get the text and vision submodules (for backward compatibility)
         self.text_model = text_model.text_model
@@ -1312,7 +1287,7 @@ class Siglip2Model(nn.Module):
         self.logit_bias = nn.Parameter(torch.randn(1))
 
         # Initialize weights and apply final processing
-        self.post_init()
+        # self.post_init()
 
     def get_text_features(
         self,
@@ -1415,6 +1390,127 @@ class Siglip2Model(nn.Module):
 
         return pooled_output
 
+
+    def load_weights(self, weights: Iterable[Tuple[str, torch.Tensor]]):
+        # stacked_params_mapping = [
+        #     # (param_name, shard_name, shard_id)
+        #     ("qkv_proj", "q_proj", "q"),
+        #     ("qkv_proj", "k_proj", "k"),
+        #     ("qkv_proj", "v_proj", "v"),
+        #     ("gate_up_proj", "up_proj", 1),
+        #     ("gate_up_proj", "gate_proj", 0),
+        # ]
+        params_dict = dict(self.named_parameters(remove_duplicate=False))
+        for name, loaded_weight in weights:
+            # if "rotary_emb.inv_freq" in name:
+            #     continue
+            # if self.config.tie_word_embeddings and "lm_head.weight" in name:
+            #     continue
+
+            # for param_name, weight_name, shard_id in stacked_params_mapping:
+            #     if weight_name not in name:
+            #         continue
+            #     name = name.replace(weight_name, param_name)
+            #
+            #     # Skip loading extra bias for GPTQ models.
+            #     if name.endswith(".bias") and name not in params_dict:
+            #         continue
+            #     if name not in params_dict:
+            #         continue
+            #     param = params_dict[name]
+            #     weight_loader = param.weight_loader
+            #     weight_loader(param, loaded_weight, shard_id)
+            #     break
+            # else:
+
+                # if "visual" in name and "qkv.weight" in name:
+                #     visual_num_heads = self.config.vision_config.num_heads
+                #     visual_embed_dim = self.config.vision_config.embed_dim
+                #     head_size = visual_embed_dim // visual_num_heads
+                #     loaded_weight = loaded_weight.view(
+                #         3, visual_num_heads, head_size, visual_embed_dim
+                #     )
+                #     loaded_weight = loaded_weight.transpose(0, 1)
+                #     loaded_weight = loaded_weight.reshape(-1, visual_embed_dim)
+                # elif "visual" in name and "qkv.bias" in name:
+                #     visual_num_heads = self.config.vision_config.num_heads
+                #     visual_embed_dim = self.config.vision_config.embed_dim
+                #     head_size = visual_embed_dim // visual_num_heads
+                #     loaded_weight = loaded_weight.view(3, visual_num_heads, head_size)
+                #     loaded_weight = loaded_weight.transpose(0, 1)
+                #     loaded_weight = loaded_weight.reshape(-1)
+                #
+                # if "visual" in name:
+                #     # adapt to VisionAttention
+                #     name = name.replace(r"attn.qkv.", r"attn.qkv_proj.")
+            if "vision_model.embeddings.position_embedding.weight" in name:
+                continue
+            try:
+                # Skip loading extra bias for GPTQ models.
+                if name.endswith(".bias") and name not in params_dict:
+                    continue
+                if name not in params_dict:
+                    continue
+                param = params_dict[name]
+            except KeyError:
+                print(params_dict.keys())
+                raise
+
+            weight_loader = getattr(param, "weight_loader", default_weight_loader)
+
+            # TODO(gaoji): remove this
+            if param.size() != loaded_weight.size():
+                loaded_weight = loaded_weight.reshape(param.shape[0], param.shape[1])
+
+            weight_loader(param, loaded_weight)
+
+
+    # def load_weights(self, module):
+    #     """Initialize the weights"""
+    #     if isinstance(module, Siglip2VisionEmbeddings):
+    #         width = (
+    #             self.config.vision_config.hidden_size
+    #             if isinstance(self.config, Siglip2Config)
+    #             else self.config.hidden_size
+    #         )
+    #         nn.init.normal_(module.position_embedding.weight, std=1 / np.sqrt(width))
+    #     elif isinstance(module, nn.Embedding):
+    #         default_flax_embed_init(module.weight)
+    #     elif isinstance(module, Siglip2Attention):
+    #         nn.init.xavier_uniform_(module.q_proj.weight)
+    #         nn.init.xavier_uniform_(module.k_proj.weight)
+    #         nn.init.xavier_uniform_(module.v_proj.weight)
+    #         nn.init.xavier_uniform_(module.out_proj.weight)
+    #         nn.init.zeros_(module.q_proj.bias)
+    #         nn.init.zeros_(module.k_proj.bias)
+    #         nn.init.zeros_(module.v_proj.bias)
+    #         nn.init.zeros_(module.out_proj.bias)
+    #     elif isinstance(module, Siglip2MLP):
+    #         nn.init.xavier_uniform_(module.fc1.weight)
+    #         nn.init.xavier_uniform_(module.fc2.weight)
+    #         nn.init.normal_(module.fc1.bias, std=1e-6)
+    #         nn.init.normal_(module.fc2.bias, std=1e-6)
+    #     elif isinstance(module, Siglip2MultiheadAttentionPoolingHead):
+    #         nn.init.xavier_uniform_(module.probe.data)
+    #         nn.init.xavier_uniform_(module.attention.in_proj_weight.data)
+    #         nn.init.zeros_(module.attention.in_proj_bias.data)
+    #     elif isinstance(module, Siglip2Model):
+    #         logit_scale_init = torch.log(torch.tensor(1.0))
+    #         module.logit_scale.data.fill_(logit_scale_init)
+    #         module.logit_bias.data.zero_()
+    #     elif isinstance(module, Siglip2ForImageClassification):
+    #         nn.init.normal_(
+    #             module.classifier.weight,
+    #             std=self.config.vision_config.hidden_size**-0.5 * self.config.initializer_factor,
+    #         )
+    #     elif isinstance(module, (nn.Linear, nn.Conv2d)):
+    #         lecun_normal_(module.weight)
+    #         if module.bias is not None:
+    #             nn.init.zeros_(module.bias)
+    #     elif isinstance(module, nn.LayerNorm):
+    #         module.bias.data.zero_()
+    #         module.weight.data.fill_(1.0)
+
     def forward(
         self,
         input_ids: Optional[torch.LongTensor] = None,
@@ -1428,36 +1524,6 @@ class Siglip2Model(nn.Module):
         output_hidden_states: Optional[bool] = None,
         return_dict: Optional[bool] = None,
     ) -> torch.Tensor:
-        # r"""
-        # Returns:
-        #
-        # Examples:
-        #
-        # ```python
-        # >>> from PIL import Image
-        # >>> import requests
-        # >>> from transformers import AutoProcessor, AutoModel
-        # >>> import torch
-        #
-        # >>> model = AutoModel.from_pretrained("google/siglip2-base-patch16-224")
-        # >>> processor = AutoProcessor.from_pretrained("google/siglip2-base-patch16-224")
-        #
-        # >>> url = "http://images.cocodataset.org/val2017/000000039769.jpg"
-        # >>> image = Image.open(requests.get(url, stream=True).raw)
-        #
-        # >>> texts = ["a photo of 2 cats", "a photo of 2 dogs"]
-        # >>> # important: we pass `padding=max_length` since the model was trained with this
-        # >>> inputs = processor(text=texts, images=image, padding="max_length", return_tensors="pt")
-        #
-        # >>> with torch.no_grad():
-        # ...     outputs = model(**inputs)
-        #
-        # >>> logits_per_image = outputs.logits_per_image
-        # >>> probs = torch.sigmoid(logits_per_image) # these are the probabilities
-        # >>> print(f"{probs[0][0]:.1%} that image 0 is '{texts[0]}'")
-        # 31.9% that image 0 is 'a photo of 2 cats'
-        # ```"""
-        # Use Siglip2 model's config for some fields (if specified) instead of those of vision & text components.
         output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
         output_hidden_states = (
             output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
@@ -1506,7 +1572,7 @@ class Siglip2Model(nn.Module):
             nll = -torch.sum(loglik, dim=-1)
             loss = nll.mean()
 
-        # if not return_dict:
+            # if not return_dict:
             output = (logits_per_image, logits_per_text, text_embeds, image_embeds, text_outputs, vision_outputs)
             return ((loss,) + output) if loss is not None else output
         #
@@ -1521,6 +1587,7 @@ class Siglip2Model(nn.Module):
         # )
         #
 
+
 # @add_start_docstrings(
 #     """
 #     Siglip2 vision encoder with an image classification head on top (a linear layer on top of the pooled final hidden states of
@@ -1532,13 +1599,13 @@ class Siglip2ForImageClassification(nn.Module):
     main_input_name = "pixel_values"
 
     def __init__(self, config: Siglip2Config) -> None:
-        super().__init__(config)
+        super().__init__()
 
         self.num_labels = config.num_labels
 
         # Create the vision model with proper attention
         # and take only vision_model submodule (for backward compatibility)
-        vision_model = Siglip2VisionModel._from_config(config.vision_config)
+        vision_model = Siglip2VisionModel(config.vision_config)
         self.vision_model = vision_model.vision_model
 
         # Classifier head
@@ -1547,7 +1614,7 @@ class Siglip2ForImageClassification(nn.Module):
         )
 
         # Initialize weights and apply final processing
-        self.post_init()
+        # self.post_init()
 
     def forward(
         self,
@@ -1612,7 +1679,7 @@ class Siglip2ForImageClassification(nn.Module):
                 loss_fct = BCEWithLogitsLoss()
                 loss = loss_fct(logits, labels)
 
-        #if not return_dict:
+        # if not return_dict:
         output = (logits,) + outputs[2:]
         return ((loss,) + output) if loss is not None else output
 
@@ -1624,14 +1691,13 @@ class Siglip2ForImageClassification(nn.Module):
         # )
         #
 
+
 __all__ = [
     "Siglip2Model",
     "Siglip2TextModel",
     "Siglip2VisionModel",
     "Siglip2ForImageClassification",
 ]
-
-
 
 EntryClass = [Siglip2Model]
 # AutoModel.register(Siglip2VisionConfig, Siglip2VisionModel)

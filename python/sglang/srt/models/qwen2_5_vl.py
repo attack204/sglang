@@ -35,7 +35,7 @@ from transformers import AutoModel, Qwen2VLConfig
 from transformers.activations import ACT2FN
 from transformers.models.qwen2.modeling_qwen2 import Qwen2RMSNorm
 
-from sglang.srt.configs import Qwen2_5_VLConfig, Qwen2_5_VLVisionConfig
+from sglang.srt.configs import Qwen2_5_VLConfig_SG, Qwen2_5_VLVisionConfig
 from sglang.srt.distributed import (
     get_tensor_model_parallel_rank,
     get_tensor_model_parallel_world_size,
@@ -719,4 +719,4 @@ class Qwen2_5_VLForConditionalGeneration(nn.Module):
 
 
 EntryClass = [Qwen2_5_VLForConditionalGeneration]
-AutoModel.register(Qwen2_5_VLConfig, Qwen2_5_VLForConditionalGeneration)
+AutoModel.register(Qwen2_5_VLConfig_SG, Qwen2_5_VLForConditionalGeneration)

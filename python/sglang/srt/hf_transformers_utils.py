@@ -30,14 +30,16 @@ from transformers import (
 )
 from transformers.models.auto.modeling_auto import MODEL_FOR_CAUSAL_LM_MAPPING_NAMES
 
-from sglang.srt.configs import ChatGLMConfig, DbrxConfig, ExaoneConfig, Qwen2_5_VLConfig, Siglip2Config
+from sglang.srt.configs import (ChatGLMConfig, DbrxConfig, ExaoneConfig, Qwen2_5_VLConfig_SG)
+
+# , Siglip2ConfigSg)
 
 _CONFIG_REGISTRY: Dict[str, Type[PretrainedConfig]] = {
     ChatGLMConfig.model_type: ChatGLMConfig,
     DbrxConfig.model_type: DbrxConfig,
     ExaoneConfig.model_type: ExaoneConfig,
-    Qwen2_5_VLConfig.model_type: Qwen2_5_VLConfig,
-    Siglip2Config.model_type: Siglip2Config,
+    Qwen2_5_VLConfig_SG.model_type: Qwen2_5_VLConfig_SG,
+    # Siglip2ConfigSg.model_type: Siglip2ConfigSg,
 }
 
 for name, cls in _CONFIG_REGISTRY.items():

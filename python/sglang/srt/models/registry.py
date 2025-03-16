@@ -35,10 +35,11 @@ class _ModelRegistry:
         )
 
     def _try_load_model_cls(self, model_arch: str) -> Optional[Type[nn.Module]]:
+
         if model_arch not in self.models:
             return None
 
-        return self.models[model_arch]
+        return  self.models[model_arch]
 
     def _normalize_archs(
         self,

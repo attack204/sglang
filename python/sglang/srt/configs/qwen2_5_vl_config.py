@@ -96,7 +96,7 @@ class Qwen2_5_VLVisionConfig(PretrainedConfig):
         self.out_hidden_size = out_hidden_size
 
 
-class Qwen2_5_VLConfig(PretrainedConfig):
+class Qwen2_5_VLConfig_SG(PretrainedConfig):
     r"""
     This is the configuration class to store the configuration of a [`Qwen2_5_VLModel`]. It is used to instantiate a
     Qwen2-VL model according to the specified arguments, defining the model architecture. Instantiating a configuration
@@ -1002,5 +1002,5 @@ class Qwen2_5_VLImageProcessor(BaseImageProcessor):
         return BatchFeature(data=data, tensor_type=return_tensors)
 
 
-AutoImageProcessor.register(Qwen2_5_VLConfig, None, Qwen2_5_VLImageProcessor, None)
-AutoProcessor.register(Qwen2_5_VLConfig, Qwen2_5_VLProcessor)
+AutoImageProcessor.register(Qwen2_5_VLConfig_SG, None, Qwen2_5_VLImageProcessor, None)
+AutoProcessor.register(Qwen2_5_VLConfig_SG, Qwen2_5_VLProcessor)
