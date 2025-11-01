@@ -1988,6 +1988,17 @@ class FlashAttentionBackend(AttentionBackend):
         """Get the fill value for sequence length in CUDA graph."""
         return 1
 
+    # def get_verify_buffers_to_fill_after_draft(self):
+    #     """Return buffers for verify attention kernels that needs to be filled after draft.
+    #     Typically, these are tree mask and position buffers.
+    #     """
+    #     return [None, None]
+    #
+    # def update_verify_buffers_to_fill_after_draft(
+    #     self, spec_info: SpecInput, cuda_graph_bs: Optional[int]
+    # ):
+    #     pass
+
     def _init_local_attn_metadata(
         self, forwardbatch: ForwardBatch, metadata: FlashAttentionMetadata, device
     ):

@@ -6,6 +6,7 @@ import torch
 from sglang.srt.managers.tp_worker import TpModelWorker
 from sglang.srt.server_args import ServerArgs
 from sglang.srt.speculative.eagle_worker import EAGLEWorker
+from sglang.srt.speculative.eagle_worker_v2 import EAGLEWorkerV2
 from sglang.srt.speculative.spec_info import SpeculativeAlgorithm
 from sglang.srt.speculative.spec_utils import draft_tp_context, load_token_map
 from sglang.srt.utils import empty_context, get_bool_env_var, is_cuda
@@ -17,7 +18,7 @@ logger = logging.getLogger(__name__)
 SGLANG_RETURN_ORIGINAL_LOGPROB = get_bool_env_var("SGLANG_RETURN_ORIGINAL_LOGPROB")
 
 
-class StandaloneWorker(EAGLEWorker):
+class StandaloneWorker(EAGLEWorkerV2):
 
     def __init__(
         self,
