@@ -1559,7 +1559,7 @@ class ScheduleBatch(ScheduleBatchDisaggregationDecodeMixin):
     @property
     def is_v2_eagle(self):
         # FIXME: finally deprecate is_v2_eagle
-        return self.enable_overlap and self.spec_algorithm.is_eagle()
+        return self.enable_overlap and (self.spec_algorithm.is_eagle() or self.is_v2_standalone)
 
     @property
     def is_v2_standalone(self):
