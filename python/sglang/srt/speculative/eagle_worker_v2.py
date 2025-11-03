@@ -404,6 +404,8 @@ class EagleDraftWorker(BaseDraftWorker):
             target_hidden_states: Hidden states from the target model forward
             next_token_ids: Next token ids generated from the target forward.
         """
+
+        logger.warning(f"gaoji: start1 Draft extend for prefill: {batch.spec_info}")
         # Construct input_ids
         pt = 0
         for i, extend_len in enumerate(batch.extend_seq_lens):
@@ -413,6 +415,7 @@ class EagleDraftWorker(BaseDraftWorker):
             )
             pt += extend_len
 
+        logger.warning(f"gaoji: start2 Draft extend for prefill: {batch.spec_info}")
         # Construct spec_info
         next_draft_input = EagleDraftInput(
             hidden_states=target_hidden_states,
@@ -421,6 +424,7 @@ class EagleDraftWorker(BaseDraftWorker):
             allocate_lens=batch.seq_lens,
         )
         batch.spec_info = next_draft_input
+        logger.warning(f"gaoji: finish Draft extend for prefill: {batch.spec_info}")
 
         # Run forward
         forward_batch = ForwardBatch.init_new(batch, self.draft_runner)
@@ -565,12 +569,16 @@ class EAGLEWorkerV2(BaseSpecWorker):
             )
 
             # Draft prefill
+
+            logger.warning("gaoji: start to Draft prefill.")
             model_worker_batch.capture_hidden_mode = CaptureHiddenMode.LAST
             batch_output.next_draft_input = self.draft_worker._draft_extend_for_prefill(
                 model_worker_batch,
                 batch_output.logits_output.hidden_states,
                 batch_output.next_token_ids,
             )
+
+            logger.warning("gaoji: finish to Draft prefill.")
             return batch_output
 
     def verify(

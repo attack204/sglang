@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Optional
 
 import torch
+import logging
 
 from sglang.srt.utils import get_compiler_backend
 
@@ -12,6 +13,8 @@ if TYPE_CHECKING:
     from sglang.srt.managers.scheduler import GenerationBatchResult
     from sglang.srt.speculative.eagle_info import EagleDraftInput
     from sglang.srt.speculative.spec_info import SpeculativeAlgorithm
+
+logger = logging.getLogger(__name__)
 
 
 @torch.compile(dynamic=True, backend=get_compiler_backend())
@@ -51,7 +54,7 @@ class FutureMap:
             )
 
     def _lazy_init_buf(self, draft_input: EagleDraftInput):
-        if self.buf_initialized or not self.spec_algo.is_eagle():
+        if self.buf_initialized or (not self.spec_algo.is_eagle() and not self.spec_algo.is_standalone()):
             return
 
         self.buf_initialized = True
@@ -101,10 +104,16 @@ class FutureMap:
     def resolve_future(self, model_worker_batch: ModelWorkerBatch):
         if self.spec_algo.is_eagle() or self.spec_algo.is_standalone():
             # TODO(lsyin): write future indices into spec_info.future_indices
+
+
+            logger.warning(f"gaoji: spec_info empty: {model_worker_batch.spec_info}")
             draft_input: EagleDraftInput = model_worker_batch.spec_info
+            logger.warning(f"gaoji: draft_input empty: {draft_input}")
+
             if draft_input is None:
                 # FIXME(lsyin): No future exists, only for prefill batch, not compatible with mixed mode
                 return
+            logger.warning(f"draft_input : {draft_input}")
             indices = draft_input.future_indices.indices
             draft_input.topk_p = self.topk_p_buf[indices]
             draft_input.topk_index = self.topk_index_buf[indices]
