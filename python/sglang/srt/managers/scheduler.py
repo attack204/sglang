@@ -2000,7 +2000,7 @@ class Scheduler(
                 # FIXME(lsyin): move this assignment elsewhere
                 future_indices_or_next_token_ids = -future_indices.indices
 
-                if batch.is_v2_eagle:
+                if batch.is_v2_eagle or batch.is_v2_standalone:
                     # FIXME(lsyin): tmp code for eagle v2
                     # We only keep future indices for next draft input
 
