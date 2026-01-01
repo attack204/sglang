@@ -7,6 +7,9 @@ Prompt encoding stages for diffusion pipelines.
 This module contains implementations of prompt encoding stages for diffusion pipelines.
 """
 
+import os
+from pathlib import Path
+
 import torch
 
 from sglang.multimodal_gen.configs.models.encoders import BaseEncoderOutput
@@ -96,6 +99,7 @@ class TextEncodingStage(PipelineStage):
                 server_args,
                 encoder_index=all_indices,
                 return_attention_mask=True,
+                use_cache=False,
             )
 
             assert batch.negative_prompt_embeds is not None
@@ -136,6 +140,45 @@ class TextEncodingStage(PipelineStage):
 
         return tok_kwargs
 
+    def load_cached_embeddings(
+        self,
+        prompt_text: str,
+        embedding_cache_dir: str = "/sgl-workspace/sglang/prompt_embeddings",
+    ) -> tuple[torch.Tensor | None, torch.Tensor | None, torch.Tensor | None]:
+        """
+        Try to load cached embeddings from disk for the given prompt.
+
+        Args:
+            prompt_text: The prompt text to look up
+            embedding_cache_dir: Directory containing cached embedding files
+
+        Returns:
+            Tuple of (prompt_embeds, attention_mask, pooled_embeds) or (None, None, None) if not found
+        """
+        if not os.path.exists(embedding_cache_dir):
+            return None, None, None
+
+        # Look for .pt files in the cache directory
+        cache_path = Path(embedding_cache_dir)
+        pt_files = list(cache_path.glob("*.pt"))
+
+        for pt_file in pt_files:
+            try:
+                data = torch.load(pt_file, map_location="cpu")
+                prompt_embeds = data.get("prompt_embeds")
+                attention_mask = data.get("encoder_attention_mask")
+                pooled_embeds = data.get("pooled_embeds")
+
+
+                print(f"prompt_embeds: {prompt_embeds} attention_mask: {attention_mask} pooled_embeds: {pooled_embeds}")
+                return prompt_embeds, attention_mask, pooled_embeds
+
+            except Exception as e:
+                print(f"Failed to load cached embeddings from {pt_file}: {e}")
+                continue
+
+        return None, None, None
+
     @torch.no_grad()
     def encode_text(
         self,
@@ -151,6 +194,7 @@ class TextEncodingStage(PipelineStage):
         padding: bool | str | None = None,
         return_overflowing_tokens=None,
         return_length=None,
+        use_cache: bool = True,
     ):
         """
         Encode plain text using selected text encoder(s) and return embeddings.
@@ -228,6 +272,58 @@ class TextEncodingStage(PipelineStage):
 
         target_device = device if device is not None else get_local_torch_device()
 
+        print(f"len texts: {len(texts)} texts: {texts}")
+
+        # Try to load cached embeddings first (only for single prompt case and when cache is enabled)
+        if (use_cache):
+            if(len(texts) == 1):
+                cached_embeds, cached_mask, cached_pooled = self.load_cached_embeddings(
+                    texts[0]
+                )
+                if cached_embeds is not None:
+                    print("🎆Using cached embeddings instead of generating new ones")
+                    # Move to target device and dtype
+                    cached_embeds = cached_embeds.to(device=target_device)
+                    if dtype is not None:
+                        cached_embeds = cached_embeds.to(dtype=dtype)
+
+                    embeds_list.append(cached_embeds)
+
+                    if cached_pooled is not None:
+                        cached_pooled = cached_pooled.to(device=target_device)
+                        if dtype is not None:
+                            cached_pooled = cached_pooled.to(dtype=dtype)
+                        pooled_embeds_list.append(cached_pooled)
+
+                    if return_attention_mask and cached_mask is not None:
+                        cached_mask = cached_mask.to(device=target_device)
+                        attn_masks_list.append(cached_mask)
+
+                    # Skip the generation loop
+                    if return_type == "list":
+                        if return_attention_mask:
+                            return embeds_list, attn_masks_list, pooled_embeds_list
+                        return embeds_list, pooled_embeds_list
+                    elif return_type == "dict":
+                        key_strs = [str(i) for i in indices]
+                        embeds_dict = {k: v for k, v in zip(key_strs, embeds_list, strict=False)}
+                        if return_attention_mask:
+                            attn_dict = {k: v for k, v in zip(key_strs, attn_masks_list, strict=False)}
+                            return embeds_dict, attn_dict
+                        return embeds_dict
+                    else:  # stack
+                        stacked_embeds = embeds_list[0]
+                        if return_attention_mask:
+                            stacked_masks = attn_masks_list[0] if attn_masks_list else None
+                            return stacked_embeds, stacked_masks
+                        return stacked_embeds
+                else:
+                    print("🎆 no cached embeddings found inner")
+
+            else:
+                print("🎆 no cached embeddings found")
+
+        # If no cached embeddings found, generate them
         for i in indices:
             tokenizer = self.tokenizers[i]
             text_encoder = self.text_encoders[i]

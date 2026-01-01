@@ -116,7 +116,8 @@ class DiffGenerator:
         instance = cls(
             server_args=server_args,
         )
-        is_local_mode = server_args.is_local_mode
+        # is_local_mode = server_args.is_local_mode
+        is_local_mode = True
         logger.info(f"Local mode: {is_local_mode}")
         if is_local_mode:
             instance.local_scheduler_process = instance._start_local_server_if_needed()
